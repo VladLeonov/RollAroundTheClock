@@ -3,78 +3,120 @@
 #include "LevelGenerator.h"
 
 
-FLevelPart ULevelGenerator::createFirstLevelPart(int32 width, int32 height) {
-
-	FLevelPart levelPart = FLevelPart(width, height);
-
-	FBlockArray *blockLayer = &(levelPart.blockMatrix.GetData()[height - 1]);
-	FDirectionalBlock *block = blockLayer->elements.GetData();
-	for (int32 i = 0; i < width; i++) {
-		*block = FDirectionalBlock(EBlockType::WALL, EDirection::UP);
-		block++;
-	}
-
-	int32 step = height;
-
-	blockLayer = levelPart.blockMatrix.GetData();
-	for (int32 i = 0; i < height - 1; i++) {
-		for (int32 j = 0; j < width; j += step) {
-			block = &(blockLayer->elements.GetData()[j]);
-			*block = FDirectionalBlock(EBlockType::WALL, EDirection::UP);
-		}
-		blockLayer++;
-	}
-
-	blockLayer = levelPart.blockMatrix.GetData();
-	block = blockLayer->elements.GetData();
-	for (int32 i = 0; i < width; i++) {
-		if (block->blockType != EBlockType::WALL) {
-			*block = FDirectionalBlock(EBlockType::SPIKE, EDirection::DOWN);
-		}
-		block++;
-	}
-
-	blockLayer = &(levelPart.blockMatrix.GetData()[height - 2]);
-	block = blockLayer->elements.GetData();
-	for (int32 i = 0; i < width; i++) {
-		if (block->blockType != EBlockType::WALL) {
-			*block = FDirectionalBlock(EBlockType::SPIKE, EDirection::UP);
-		}
-		block++;
-	}
-
-	return levelPart;
+inline bool randomBool(float probability) {
+	return (static_cast <float> (rand()) / static_cast <float> (RAND_MAX)) < probability;
 }
 
 
-FLevelPart ULevelGenerator::createNextLevelPart(FLevelPart lastLevelPart) {
+inline void fillArrayOfMarks(TArray<bool> &array, float probability) {
+	for (int32 i = 0; i < array.Num(); i++) {
+		array.GetData()[i] = randomBool(probability);
+	}
+}
 
-	int32 width = lastLevelPart.width, height = lastLevelPart.height;
-	FLevelPart nextLevelPart = FLevelPart(width, height);
+inline void fillArrayOfMarks(TArray<bool> &array, float probability, TArray<bool> &limiters) {
+	for (int32 i = 0; i < array.Num(); i++) {
+		array.GetData()[i] = limiters.GetData()[i] && randomBool(probability);
+	}
+}
 
-	FBlockArray *blockLayerLLP, *blockLayerNLP;
-	FDirectionalBlock *blockLLP, *blockNLP;
+FLevelPart ULevelGenerator::createFirstLevelPart(int32 width, int32 height, int32 widthPart, FGenerationParameters generationParameters) {
 
-	blockLayerLLP = lastLevelPart.blockMatrix.GetData();
-	blockLayerNLP = nextLevelPart.blockMatrix.GetData();
+	FLevelPart stubLevelPart = FLevelPart(width, height, widthPart);
+	fillArrayOfMarks(stubLevelPart.ceilingWallMarks, generationParameters.horizontalWallProbability);
+	return createNextLevelPart(stubLevelPart, generationParameters);
+}
 
-	for (int32 i = 0; i < height; i++) {
-		
-		blockLLP = &(blockLayerLLP->elements.GetData()[width - 1]);
-		blockNLP = blockLayerNLP->elements.GetData();
-		*blockNLP = *blockLLP;
 
-		blockLLP = blockLayerLLP->elements.GetData();
-		blockNLP++;
+FLevelPart ULevelGenerator::createNextLevelPart(FLevelPart lastLevelPart, FGenerationParameters generationParameters) {
 
-		for (int32 j = 0; j < width - 1; j++) {
-			*blockNLP = *blockLLP;
-			blockNLP++;
-			blockLLP++;
+	int32 width = lastLevelPart.width;
+	int32 height = lastLevelPart.height;
+	int32 widthPart = lastLevelPart.widthPart;
+	FLevelPart nextLevelPart = FLevelPart(width, height, widthPart);
+	int32 numHorizontalParts = width / widthPart;
+
+	TArray<bool> &ceilingMarks = nextLevelPart.ceilingWallMarks;
+	TArray<bool> floorMarks = lastLevelPart.ceilingWallMarks;
+	TArray<bool> wallMarks;
+	TArray<bool> ceilingSpikesMarks;
+	TArray<bool> floorSpikesMarks;
+	wallMarks.SetNum(numHorizontalParts);
+	ceilingSpikesMarks.SetNum(numHorizontalParts);
+	floorSpikesMarks.SetNum(numHorizontalParts);
+
+	fillArrayOfMarks(ceilingMarks, generationParameters.horizontalWallProbability);
+	fillArrayOfMarks(wallMarks, generationParameters.verticalWallProbability);
+	fillArrayOfMarks(ceilingSpikesMarks, generationParameters.spikesProbability, ceilingMarks);
+	fillArrayOfMarks(floorSpikesMarks, generationParameters.spikesProbability, floorMarks);
+
+	//floor
+	FBlockArray *blockLayer = &(nextLevelPart.blockMatrix.GetData()[height - 1]);
+	FDirectionalBlock *block = blockLayer->elements.GetData();
+	for (int32 i = 0; i < numHorizontalParts; i++) {
+		if (floorMarks.GetData()[i] 
+			|| floorMarks.GetData()[(i - 1 + numHorizontalParts) % numHorizontalParts] 
+			|| wallMarks.GetData()[i]) {
+			*block = FDirectionalBlock(EBlockType::WALL, EDirection::UP);
 		}
+		if (floorMarks.GetData()[i]) {
+			for (int32 j = 0; j < widthPart - 1; j++) {
+				block++;
+				*block = FDirectionalBlock(EBlockType::WALL, EDirection::UP);
+			}
+			block++;
+		} else {
+			block += widthPart;
+		}
+	}
 
-		blockLayerLLP++;
-		blockLayerNLP++;
+	//seiling spikes
+	blockLayer = nextLevelPart.blockMatrix.GetData();
+	block = blockLayer->elements.GetData();
+	for (int32 i = 0; i < numHorizontalParts; i++) {
+		if (ceilingSpikesMarks.GetData()[i]) {
+			if (ceilingSpikesMarks.GetData()[(i - 1 + numHorizontalParts) % numHorizontalParts]) {
+				*block = FDirectionalBlock(EBlockType::SPIKE, EDirection::DOWN);
+			}
+			for (int32 j = 0; j < widthPart - 1; j++) {
+				block++;
+				*block = FDirectionalBlock(EBlockType::SPIKE, EDirection::DOWN);
+			}
+			block++;
+		} else {
+			block += widthPart;
+		}
+	}
+
+	//floor spikes
+	blockLayer = &(nextLevelPart.blockMatrix.GetData()[height - 2]);
+	block = blockLayer->elements.GetData();
+	for (int32 i = 0; i < numHorizontalParts; i++) {
+		if (floorSpikesMarks.GetData()[i]) {
+			if (floorSpikesMarks.GetData()[(i - 1 + numHorizontalParts) % numHorizontalParts]) {
+				*block = FDirectionalBlock(EBlockType::SPIKE, EDirection::UP);
+			}
+			for (int32 j = 0; j < widthPart - 1; j++) {
+				block++;
+				*block = FDirectionalBlock(EBlockType::SPIKE, EDirection::UP);
+			}
+			block++;
+		}
+		else {
+			block += widthPart;
+		}
+	}
+
+	//walls
+	blockLayer = nextLevelPart.blockMatrix.GetData();
+	for (int32 i = 0; i < height - 1; i++) {
+		for (int32 j = 0; j < numHorizontalParts; j++) {
+			if (wallMarks.GetData()[j]) {
+				blockLayer->elements.GetData()[j * widthPart]
+					= FDirectionalBlock(EBlockType::WALL, EDirection::UP);
+			}
+		}
+		blockLayer++;
 	}
 
 	return nextLevelPart;

@@ -74,22 +74,45 @@ struct FLevelPart {
 	TArray<FBlockArray> blockMatrix;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LevelGenerator")
+	TArray<bool> ceilingWallMarks;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LevelGenerator")
 	int32 width;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LevelGenerator")
 	int32 height;
 
-	FLevelPart() {
-		width = 0;
-		height = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LevelGenerator")
+	int32 widthPart;
+
+	FLevelPart() : width(0), height(0), widthPart(0) {
 		blockMatrix.Init(FBlockArray(width), height);
+		ceilingWallMarks.Init(true, 0);
 	}
 
-	FLevelPart(int32 width, int32 height) {
-		this->width = width;
-		this->height = height;
+	FLevelPart(int32 width, int32 height, int32 widthPart)
+		: width(width), height(height), widthPart(widthPart) {
 		blockMatrix.Init(FBlockArray(width), height);
+		ceilingWallMarks.Init(true, width / widthPart);
 	}
+};
+
+
+USTRUCT(BlueprintType)
+struct FGenerationParameters {
+
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LevelGenerator")
+	float verticalWallProbability;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LevelGenerator")
+	float horizontalWallProbability;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LevelGenerator")
+	float spikesProbability;
+
+	FGenerationParameters() : verticalWallProbability(0), horizontalWallProbability(0), spikesProbability(0) {}
 };
 
 
@@ -97,12 +120,12 @@ UCLASS()
 class HURRYAROUNDTHECLOCK_API ULevelGenerator : public UBlueprintFunctionLibrary {
 
 	GENERATED_BODY()
-	
+
 public:
 
 	UFUNCTION(BlueprintCallable, Category = "LevelGenerator")
-	static FLevelPart createFirstLevelPart(int32 width, int32 height);
+	static FLevelPart createFirstLevelPart(int32 width, int32 height, int32 widthPart, FGenerationParameters generationParameters);
 
 	UFUNCTION(BlueprintCallable, Category = "LevelGenerator")
-	static FLevelPart createNextLevelPart(FLevelPart lastLevelPart);
+	static FLevelPart createNextLevelPart(FLevelPart lastLevelPart, FGenerationParameters generationParameters);
 };
